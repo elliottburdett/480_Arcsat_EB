@@ -317,16 +317,3 @@ print(f'Gain is {gain} in e-/ADU')
 noise_files = (bias_list[0], bias_list[1])
 readout_noise = calculate_readout_noise(noise_files, gain)
 print(f'Readout noise is {readout_noise} in e-')
-
-counter = 0
-for science in science_list: #Reduce all the science files
-    counter += 1
-    reduced_science = reduce_science_frame(science_filename=science, median_bias_filename='Median_Bias', median_flat_filename='Median_Flat', median_dark_filename='Median_Dark', reduced_science_filename=f"reduced_science_{counter}.fits")
-
-gain_flats = (flat_list[0], flat_list[1])
-gain = calculate_gain(gain_flats)
-print(f'Gain is {gain} in e-/ADU') # Calculate the gain
-
-noise_files = (bias_list[0], bias_list[1])
-readout_noise = calculate_readout_noise(noise_files, gain)
-print(f'Readout noise is {readout_noise} in e-') # Calculate the readout noise
