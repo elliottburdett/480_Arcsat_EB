@@ -17,6 +17,10 @@ from photutils.aperture import CircularAperture, CircularAnnulus, aperture_photo
 import astroscrappy
 from astroscrappy import detect_cosmics
 import glob
+from astropy.timeseries import LombScargle
+from scipy.optimize import curve_fit
+from astropy.time import Time
+
 
 def create_median_bias(bias_list, median_bias_filename):
     """This function must:
@@ -36,7 +40,7 @@ def create_median_bias(bias_list, median_bias_filename):
     for bias in bias_list:
         bias_of_the_moment = fits.open(bias) # Open each file
         data = bias_of_the_moment[0].data.astype('f4') # Get a 2d data array from each file
-        list_of_arrays.append(short_data) # Add each array to the list
+        list_of_arrays.append(data) # Add each array to the list
         
     bias_images_masked = sigma_clip(list_of_arrays, cenfunc='median', sigma=3, axis=0) #Make a masked array out of the list based on sigma-clipping
     median_bias = np.ma.median(bias_images_masked, axis=0) # Use the masked array to compute median while ignoring masked values
@@ -73,10 +77,10 @@ def create_median_dark(dark_list, bias_filename, median_dark_filename):
     for dark in dark_list:
         dark_of_the_moment = fits.open(dark) # Open each file
         data = dark_of_the_moment[0].data.astype('f4') # Get a 2d data array from each file
-        short_data = short_data - bias # Subtract the bias frame from each dark image
+        data = data - bias # Subtract the bias frame from each dark image
         exptime = dark_of_the_moment[0].header['EXPTIME']
-        short_data = short_data - exptime #subtract the exposure time
-        list_of_arrays.append(short_data) # Add each array to the list
+        data = data - exptime #subtract the exposure time
+        list_of_arrays.append(data) # Add each array to the list
         
     dark_images_masked = sigma_clip(list_of_arrays, cenfunc='median', sigma=3, axis=0) #Make a masked array out of the list based on sigma-clipping
     median_dark = np.ma.median(dark_images_masked, axis=0) # Use the masked array to compute median while ignoring masked values
@@ -125,15 +129,15 @@ def create_median_flat(
             data = fits.getdata(flat) # Open each file
             exptime = fits.open(flat)[0].header['EXPTIME']
             #print(exptime)
-            short_data = short_data - bias - (dark * exptime)
-            list_of_arrays.append(short_data) # Add each array to the list
+            data = data - bias - (dark * exptime)
+            list_of_arrays.append(data) # Add each array to the list
 
     else:
         for flat in flat_list:
             data = fits.getdata(flat) # Open each file
             #print(exptime)
-            short_data = short_data - bias
-            list_of_arrays.append(short_data) # Add each array to the list
+            data = data - bias
+            list_of_arrays.append(data) # Add each array to the list
 
     #print(list_of_arrays)
     
@@ -193,6 +197,8 @@ def reduce_science_frame(
 
     exptime = science_file[0].header['EXPTIME']
 
+    science_header = science_file[0].header
+
     science -= bias
 
     science -= (dark * exptime)
@@ -225,8 +231,8 @@ def calculate_gain(files):
     flat1 = fits.getdata(a).astype('f4')
     flat2 = fits.getdata(b).astype('f4')
     
-    flat1_trim = flat1[1536:2560, 1536:2560]
-    flat2_trim = flat2[1536:2560, 1536:2560]
+    flat1_trim = flat1
+    flat2_trim = flat2
    
     flat_diff = flat1_trim - flat2_trim
     flat_diff_var = np.var(flat_diff)
@@ -254,8 +260,8 @@ def calculate_readout_noise(files, gain):
     bias1 = fits.getdata(a).astype('f4')
     bias2 = fits.getdata(b).astype('f4')
     
-    bias1_trim = bias1[1536:2560, 1536:2560]
-    bias2_trim = bias2[1536:2560, 1536:2560]
+    bias1_trim = bias1
+    bias2_trim = bias2
 
     bias_diff = bias1_trim - bias2_trim
     bias_diff_var = np.var(bias_diff)
@@ -268,10 +274,7 @@ def calculate_readout_noise(files, gain):
 
     return float(readout_noise_e)
 
-#Begin the reduction process.
-
-#Get the path lists:
-data_dir = '/home/jovyan/ccd_data' # Change
+data_dir = '/Users/elliottburdett/Downloads/202050511 ARCSAT'
 
 bias_list = []
 dark_list = []
@@ -280,7 +283,7 @@ science_list = []
 
 path_list = glob.glob(data_dir + '/*')
 for path in path_list:
-    if path.endswith(".fit"):
+    if path.endswith(".fits"):
         hdul = fits.open(path)
         imagetype = hdul[0].header['IMAGETYP']
         if imagetype == 'BIAS':
@@ -296,6 +299,8 @@ for path in path_list:
     else:
         print("File wasn't a fits file")
 
+#Begin the reduction process.
+
 median_bias = create_median_bias(bias_list=bias_list, median_bias_filename='Median_Bias')
 median_dark = create_median_dark(dark_list=dark_list, bias_filename='Median_Bias', median_dark_filename='Median_Dark')
 median_flat = create_median_flat(flat_list=flat_list, bias_filename='Median_Bias', median_flat_filename='Median_Flat', dark_filename='Median_Dark')
@@ -303,7 +308,7 @@ median_flat = create_median_flat(flat_list=flat_list, bias_filename='Median_Bias
 counter = 0
 for science in science_list: #Reduce all the science files
     counter += 1
-    reduced_science = reduce_science_frame(science_filename=science_list[0], median_bias_filename='Median_Bias', median_flat_filename='Median_Flat', median_dark_filename='Median_Dark', reduced_science_filename=f"reduced_science_{counter}.fits")
+    reduced_science = reduce_science_frame(science_filename=science, median_bias_filename='Median_Bias', median_flat_filename='Median_Flat', median_dark_filename='Median_Dark', reduced_science_filename=f"reduced_science_{counter}.fits")
 
 gain_flats = (flat_list[0], flat_list[1])
 gain = calculate_gain(gain_flats)
@@ -312,3 +317,16 @@ print(f'Gain is {gain} in e-/ADU')
 noise_files = (bias_list[0], bias_list[1])
 readout_noise = calculate_readout_noise(noise_files, gain)
 print(f'Readout noise is {readout_noise} in e-')
+
+counter = 0
+for science in science_list: #Reduce all the science files
+    counter += 1
+    reduced_science = reduce_science_frame(science_filename=science, median_bias_filename='Median_Bias', median_flat_filename='Median_Flat', median_dark_filename='Median_Dark', reduced_science_filename=f"reduced_science_{counter}.fits")
+
+gain_flats = (flat_list[0], flat_list[1])
+gain = calculate_gain(gain_flats)
+print(f'Gain is {gain} in e-/ADU') # Calculate the gain
+
+noise_files = (bias_list[0], bias_list[1])
+readout_noise = calculate_readout_noise(noise_files, gain)
+print(f'Readout noise is {readout_noise} in e-') # Calculate the readout noise
